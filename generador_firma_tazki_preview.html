@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Generador de Firma Tazki (Outlook-safe)</title>
+  <style>
+    :root { color-scheme: light; }
+    body { font-family: Arial, Helvetica, sans-serif; margin: 24px; background:#fff; color:#111; }
+    .wrap { max-width: 1200px; margin: 0 auto; }
+    h1 { font-size: 20px; margin: 0 0 14px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    label { font-size: 12px; color:#444; display:block; margin-bottom:6px; }
+    input { width: 100%; padding: 10px 12px; border:1px solid #ddd; border-radius: 10px; font-size: 14px; }
+    .row { display:flex; gap:10px; align-items:center; margin-top:14px; flex-wrap:wrap; }
+    button { padding: 10px 14px; border-radius: 10px; border:1px solid #ddd; background:#f6f6f6; cursor:pointer; font-size: 14px; }
+    button.primary { background:#111; color:#fff; border-color:#111; }
+    textarea { width: 100%; min-height: 360px; padding: 12px; border:1px solid #ddd; border-radius: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
+    .hint { font-size: 12px; color:#666; margin: 8px 0 0; line-height: 1.35; }
+    .card { border:1px solid #eee; border-radius: 14px; padding: 16px; }
+    .small { font-size: 12px; color:#666; }
+    .preview-wrap { border:1px dashed #ddd; border-radius: 12px; padding: 16px; background:#fafafa; }
+    iframe { width:100%; border:0; background:#fff; }
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Generador de firma (HTML Outlook-safe)</h1>
+
+    <div class="card">
+      <div class="grid">
+        <div>
+          <label for="name">Nombre completo</label>
+          <input id="name" type="text" placeholder="Ej: Cristian Cea" autocomplete="name" />
+        </div>
+        <div>
+          <label for="title">Cargo</label>
+          <input id="title" type="text" placeholder="Ej: Sales Consultant" />
+        </div>
+        <div>
+          <label for="email">Email</label>
+          <input id="email" type="email" placeholder="Ej: cristian.cea@tazki.cl" autocomplete="email" />
+        </div>
+        <div>
+          <label for="phone">Teléfono</label>
+          <input id="phone" type="text" placeholder="Ej: +56 9 1111 2222" autocomplete="tel" />
+        </div>
+      </div>
+
+      <div class="row">
+        <button class="primary" id="btnGen" type="button">Generar HTML</button>
+        <button id="btnCopy" type="button">Copiar HTML</button>
+        <button id="btnClear" type="button">Limpiar</button>
+        <div class="small" id="photoPreview"></div>
+      </div>
+    </div>
+
+    <div style="height:16px;"></div>
+
+    <div class="grid">
+      <div class="card">
+        <label for="out">Código HTML generado</label>
+        <textarea id="out" spellcheck="false"></textarea>
+        <div class="hint">Este es el HTML que debes copiar y pegar como firma.</div>
+      </div>
+
+      <div class="card">
+        <label>Previsualización de la firma</label>
+        <div class="preview-wrap">
+          <iframe id="preview" sandbox="allow-same-origin"></iframe>
+        </div>
+        <div class="hint">
+          Nota: la visualización es referencial. Outlook puede variar levemente.
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const PHOTO_BASE = "https://50744593.fs1.hubspotusercontent-na1.net/hubfs/50744593/Firma/Fotos/";
+  const ICON_EMAIL = "https://50744593.fs1.hubspotusercontent-na1.net/hubfs/50744593/Firma/iconos/email.png";
+  const ICON_PHONE = "https://50744593.fs1.hubspotusercontent-na1.net/hubfs/50744593/Firma/iconos/phone.png";
+  const ICON_WEB   = "https://50744593.fs1.hubspotusercontent-na1.net/hubfs/50744593/Firma/iconos/www.png";
+  const ICON_LOC   = "https://50744593.fs1.hubspotusercontent-na1.net/hubfs/50744593/Firma/iconos/location.png";
+  const LOGO_TAZKI  = "https://50744593.fs1.hubspotusercontent-na1.net/hubfs/50744593/Firma/iconos/logo-tazki.png";
+  const DEFAULT_WEB = "https://www.tazki.cl";
+  const DEFAULT_WEB_TEXT = "www.tazki.cl";
+  const DEFAULT_ADDRESS = "Concilio Vaticano II 5820";
+
+  const $ = (id) => document.getElementById(id);
+
+  function escapeHtml(str) {
+    return (str || "").replace(/[&<>"']/g, (m) => ({
+      "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
+    }[m]));
+  }
+
+  function emailToPhotoFilename(email) {
+    const local = (email || "").trim().split("@")[0] || "";
+    const safe = local.toLowerCase().replace(/\s+/g,"").replace(/\./g,"_").replace(/[^a-z0-9_]/g,"_");
+    return safe ? `${safe}.png` : "";
+  }
+
+  function phoneToTel(phone) {
+    const cleaned = (phone || "").trim().replace(/[^0-9+]/g,"");
+    return cleaned.startsWith("+") ? "+" + cleaned.slice(1).replace(/\+/g,"") : cleaned.replace(/\+/g,"");
+  }
+
+  function buildSignature({ name, title, email, phoneDisplay }) {
+    const nameSafe = escapeHtml(name);
+    const titleSafe = escapeHtml(title);
+    const emailSafe = (email || "").trim();
+    const emailText = escapeHtml(emailSafe);
+    const phoneText = escapeHtml(phoneDisplay);
+    const telHref = phoneToTel(phoneDisplay);
+
+    const photoFile = emailToPhotoFilename(emailSafe);
+    const photoUrl = photoFile ? PHOTO_BASE + photoFile : PHOTO_BASE + "cristian_cea.png";
+    $("photoPreview").textContent = "Foto: " + photoUrl;
+
+    return `<!-- TAZKI SIGNATURE -->
+<table cellpadding="0" cellspacing="0" border="0" role="presentation"
+  style="font-family:'Inter','Segoe UI',Arial,Helvetica,sans-serif; color:#1e2a3b; mso-line-height-rule:exactly;">
+<tr>
+<td valign="top" style="padding:0 24px 0 0;">
+<table cellpadding="0" cellspacing="0" border="0" role="presentation"
+style="width:150px; height:150px; border-radius:999px; overflow:hidden;">
+<tr><td>
+<img src="${photoUrl}" width="150" height="150"
+style="display:block; width:150px; height:150px; border-radius:999px; border:0;">
+</td></tr></table>
+</td>
+<td valign="top">
+<div style="font-size:30px; font-weight:700; line-height:34px;">${nameSafe}</div>
+<div style="font-size:18px; color:#a35aa7; line-height:22px;">${titleSafe}</div>
+
+<table cellpadding="0" cellspacing="0" border="0" style="margin-top:22px;">
+<tr>
+<td style="padding-right:34px;">
+<img src="${ICON_EMAIL}" width="20" height="20" style="vertical-align:middle;"> 
+<a href="mailto:${emailSafe}" style="color:#7a8598; text-decoration:none; font-size:13px;">${emailText}</a>
+</td>
+<td>
+<img src="${ICON_PHONE}" width="20" height="20" style="vertical-align:middle;"> 
+<a href="tel:${telHref}" style="color:#7a8598; text-decoration:none; font-size:13px;">${phoneText}</a>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr><td colspan="2" style="border-top:2px solid #a35aa7; height:10px;"></td></tr>
+<tr>
+<td colspan="2">
+<table width="100%"><tr>
+<td>
+<img src="${ICON_WEB}" width="20" height="20"> 
+<a href="${DEFAULT_WEB}" style="color:#7a8598; text-decoration:none; font-size:13px;">${DEFAULT_WEB_TEXT}</a>
+&nbsp;&nbsp;
+<img src="${ICON_LOC}" width="20" height="20"> 
+<span style="font-size:13px; color:#7a8598;">${DEFAULT_ADDRESS}</span>
+</td>
+<td align="right">
+<img src="${LOGO_TAZKI}" height="58">
+</td>
+</tr></table>
+</td>
+</tr>
+</table>`;
+  }
+
+  function renderPreview(html) {
+    const iframe = $("preview");
+    const doc = iframe.contentDocument || iframe.contentWindow.document;
+    doc.open();
+    doc.write("<!doctype html><html><head><meta charset='utf-8'></head><body>" + html + "</body></html>");
+    doc.close();
+    iframe.style.height = Math.max(doc.body.scrollHeight, 120) + "px";
+  }
+
+  function generate() {
+    const data = {
+      name: $("name").value,
+      title: $("title").value,
+      email: $("email").value,
+      phoneDisplay: $("phone").value
+    };
+    const html = buildSignature(data);
+    $("out").value = html;
+    renderPreview(html);
+  }
+
+  async function copyHtml() {
+    if (!$("out").value) return;
+    await navigator.clipboard.writeText($("out").value);
+    $("btnCopy").textContent = "¡Copiado!";
+    setTimeout(()=> $("btnCopy").textContent = "Copiar HTML", 900);
+  }
+
+  function clearAll() {
+    ["name","title","email","phone"].forEach(id => $(id).value="");
+    $("out").value="";
+    $("photoPreview").textContent="";
+    renderPreview("");
+  }
+
+  $("btnGen").addEventListener("click", generate);
+  $("btnCopy").addEventListener("click", copyHtml);
+  $("btnClear").addEventListener("click", clearAll);
+</script>
+</body>
+</html>
